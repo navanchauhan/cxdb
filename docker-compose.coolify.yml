@@ -1,0 +1,70 @@
+services:
+  cxdb-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "9009"
+      - "9010"
+    volumes:
+      - cxdb-data:/data
+    environment:
+      CXDB_DATA_DIR: /data
+      CXDB_BIND: 0.0.0.0:9009
+      CXDB_HTTP_BIND: 0.0.0.0:9010
+      CXDB_LOG_LEVEL: ${CXDB_LOG_LEVEL:-info}
+      CXDB_LOG_FORMAT: ${CXDB_LOG_FORMAT:-json}
+      CXDB_ENABLE_METRICS: ${CXDB_ENABLE_METRICS:-false}
+      CXDB_MAX_BLOB_SIZE: ${CXDB_MAX_BLOB_SIZE:-10485760}
+      CXDB_COMPRESSION_LEVEL: ${CXDB_COMPRESSION_LEVEL:-3}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  cxdb-gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - gateway-data:/data
+    environment:
+      PORT: 8080
+      CXDB_BACKEND_URL: http://cxdb-server:9010
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
+      GOOGLE_ALLOWED_EMAILS: ${GOOGLE_ALLOWED_EMAILS:-}
+      OIDC_ENABLED: ${OIDC_ENABLED:-}
+      OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-OIDC}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid,email,profile}
+      OIDC_ALLOWED_DOMAIN: ${OIDC_ALLOWED_DOMAIN:-}
+      OIDC_ALLOWED_EMAILS: ${OIDC_ALLOWED_EMAILS:-}
+      SESSION_SECRET: ${SESSION_SECRET}
+      DATABASE_PATH: /data/sessions.db
+      SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
+      ALLOWED_RENDERER_ORIGINS: ${ALLOWED_RENDERER_ORIGINS:-https://esm.sh,https://cdn.jsdelivr.net,https://unpkg.com}
+      DEV_MODE: ${DEV_MODE:-}
+    depends_on:
+      cxdb-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  cxdb-data:
+  gateway-data:
