@@ -1,8 +1,7 @@
 services:
   cxdb-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CXDB_SERVER_IMAGE:-ghcr.io/navanchauhan/cxdb-server:main}
+    pull_policy: always
     restart: unless-stopped
     expose:
       - "9009"
@@ -26,9 +25,8 @@ services:
       start_period: 10s
 
   cxdb-gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
+    image: ${CXDB_GATEWAY_IMAGE:-ghcr.io/navanchauhan/cxdb-gateway:main}
+    pull_policy: always
     restart: unless-stopped
     expose:
       - "8080"

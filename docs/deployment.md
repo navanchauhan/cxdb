@@ -90,6 +90,25 @@ openssl rand -hex 32
 
 ## Docker Compose
 
+### Coolify With Prebuilt Images
+
+`docker-compose.coolify.yml` is intended for Coolify deployments that pull
+prebuilt images instead of compiling CXDB on the Coolify host. The production
+defaults are:
+
+```bash
+CXDB_SERVER_IMAGE=ghcr.io/navanchauhan/cxdb-server:main
+CXDB_GATEWAY_IMAGE=ghcr.io/navanchauhan/cxdb-gateway:main
+```
+
+The `Publish Images and Deploy` GitHub Actions workflow builds both images for
+`linux/amd64`, pushes them to GHCR, then calls the Coolify deploy API. Disable
+Coolify auto-deploy for the application so the GitHub webhook does not start a
+deployment before GHCR has the new images.
+
+The GHCR packages must be public, or the Coolify host must be logged in to GHCR
+with a token that can pull them.
+
 **docker-compose.yml:**
 
 ```yaml
