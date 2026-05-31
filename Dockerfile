@@ -11,7 +11,7 @@ FROM node:20-alpine AS frontend
 WORKDIR /app
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
 # Copy package files
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
