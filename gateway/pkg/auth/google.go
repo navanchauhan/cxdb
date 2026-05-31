@@ -216,7 +216,7 @@ func (g *GoogleAuth) clearStateCookie(w http.ResponseWriter) {
 }
 
 func (g *GoogleAuth) setPostAuthRedirectCookie(w http.ResponseWriter, r *http.Request) {
-	host := canonicalHost(r)
+	host := canonicalAuthority(r)
 	if host == "" {
 		return
 	}
@@ -320,6 +320,20 @@ func canonicalHost(r *http.Request) string {
 	}
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		return h
+	}
+	return host
+}
+
+func canonicalAuthority(r *http.Request) string {
+	host := strings.ToLower(strings.TrimSpace(r.Host))
+	if host == "" {
+		return ""
+	}
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		if h == "" || p == "" {
+			return ""
+		}
+		return net.JoinHostPort(h, p)
 	}
 	return host
 }

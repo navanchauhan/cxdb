@@ -42,6 +42,12 @@ data:
   # Update these for your deployment
   PUBLIC_BASE_URL: "https://cxdb.example.com"
   GOOGLE_ALLOWED_DOMAIN: "example.com"
+  OIDC_ENABLED: "false"
+  OIDC_PROVIDER_NAME: "Pocket ID"
+  # OIDC_ISSUER_URL: "https://pocketid.example.com"
+  # OIDC_SCOPES: "openid,email,profile"
+  # OIDC_ALLOWED_DOMAIN: "example.com"
+  # OIDC_ALLOWED_EMAILS: "user1@example.com,user2@example.com"
 
   # CSP script-src origins for custom renderers
   ALLOWED_RENDERER_ORIGINS: "https://esm.sh,https://cdn.jsdelivr.net,https://unpkg.com"

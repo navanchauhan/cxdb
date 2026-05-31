@@ -20,9 +20,18 @@ import (
 // Values are sourced from environment variables so they can
 // be injected locally via a .env file or via platform secrets.
 type Config struct {
-	GoogleClientID     string
-	GoogleClientSecret string
+	GoogleClientID      string
+	GoogleClientSecret  string
 	GoogleAllowedDomain string
+
+	OIDCEnabled       bool
+	OIDCIssuerURL     string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	OIDCScopes        []string
+	OIDCAllowedDomain string
+	OIDCAllowedEmails []string
+	OIDCProviderName  string
 
 	PublicBaseURL      string
 	PublicAllowedHosts []string
@@ -95,6 +104,15 @@ func Load() (Config, error) {
 		CXDBBackendURL:      firstNonEmpty(os.Getenv("CXDB_BACKEND_URL"), defaultCXDBBackendURL),
 	}
 
+	cfg.OIDCEnabled = parseBoolEnv("OIDC_ENABLED")
+	cfg.OIDCIssuerURL = strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL"))
+	cfg.OIDCClientID = strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
+	cfg.OIDCClientSecret = strings.TrimSpace(os.Getenv("OIDC_CLIENT_SECRET"))
+	cfg.OIDCScopes = splitAndTrimPreserveCase(os.Getenv("OIDC_SCOPES"))
+	cfg.OIDCAllowedDomain = strings.ToLower(strings.TrimSpace(os.Getenv("OIDC_ALLOWED_DOMAIN")))
+	cfg.OIDCAllowedEmails = splitAndTrim(os.Getenv("OIDC_ALLOWED_EMAILS"))
+	cfg.OIDCProviderName = firstNonEmpty(os.Getenv("OIDC_PROVIDER_NAME"), "OIDC")
+
 	if ttlStr := strings.TrimSpace(os.Getenv("SESSION_TTL_HOURS")); ttlStr != "" {
 		if hours, err := strconv.Atoi(ttlStr); err == nil && hours > 0 {
 			cfg.SessionTTL = time.Duration(hours) * time.Hour
@@ -156,17 +174,37 @@ func Load() (Config, error) {
 
 func (c Config) validate() error {
 	var missing []string
-	if c.GoogleClientID == "" {
-		missing = append(missing, "GOOGLE_CLIENT_ID")
-	}
-	if c.GoogleClientSecret == "" {
-		missing = append(missing, "GOOGLE_CLIENT_SECRET")
-	}
 	if c.SessionSecret == "" {
 		missing = append(missing, "SESSION_SECRET")
 	}
-	if c.GoogleAllowedDomain == "" {
-		missing = append(missing, "GOOGLE_ALLOWED_DOMAIN")
+
+	googleConfigured := c.GoogleClientID != "" || c.GoogleClientSecret != "" || c.GoogleAllowedDomain != ""
+	if googleConfigured {
+		if c.GoogleClientID == "" {
+			missing = append(missing, "GOOGLE_CLIENT_ID")
+		}
+		if c.GoogleClientSecret == "" {
+			missing = append(missing, "GOOGLE_CLIENT_SECRET")
+		}
+		if c.GoogleAllowedDomain == "" {
+			missing = append(missing, "GOOGLE_ALLOWED_DOMAIN")
+		}
+	}
+
+	if c.OIDCEnabled {
+		if c.OIDCIssuerURL == "" {
+			missing = append(missing, "OIDC_ISSUER_URL (required when OIDC_ENABLED=true)")
+		}
+		if c.OIDCClientID == "" {
+			missing = append(missing, "OIDC_CLIENT_ID (required when OIDC_ENABLED=true)")
+		}
+		if c.OIDCClientSecret == "" {
+			missing = append(missing, "OIDC_CLIENT_SECRET (required when OIDC_ENABLED=true)")
+		}
+	}
+
+	if !googleConfigured && !c.OIDCEnabled && !c.DevMode {
+		missing = append(missing, "GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_ALLOWED_DOMAIN or OIDC_ENABLED=true")
 	}
 
 	// Conditional validation for K8s OIDC

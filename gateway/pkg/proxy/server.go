@@ -25,6 +25,7 @@ type Server struct {
 	mux      *http.ServeMux
 	sessions *auth.SessionStore
 	google   *auth.GoogleAuth
+	oidc     *auth.OIDCAuth
 	proxy    *ReverseProxy
 	sse      *SSEBroker
 	logger   *slog.Logger
@@ -40,7 +41,7 @@ type Server struct {
 }
 
 // New constructs the HTTP server and registers all routes.
-func New(cfg config.Config, sessions *auth.SessionStore, google *auth.GoogleAuth, proxy *ReverseProxy, staticFS fs.FS, logger *slog.Logger) (*Server, error) {
+func New(cfg config.Config, sessions *auth.SessionStore, google *auth.GoogleAuth, oidc *auth.OIDCAuth, proxy *ReverseProxy, staticFS fs.FS, logger *slog.Logger) (*Server, error) {
 	mux := http.NewServeMux()
 
 	// Create SSE broker for live events
@@ -57,6 +58,7 @@ func New(cfg config.Config, sessions *auth.SessionStore, google *auth.GoogleAuth
 		mux:      mux,
 		sessions: sessions,
 		google:   google,
+		oidc:     oidc,
 		proxy:    proxy,
 		sse:      sseBroker,
 		logger:   logger,
@@ -115,9 +117,17 @@ func New(cfg config.Config, sessions *auth.SessionStore, google *auth.GoogleAuth
 	mux.HandleFunc("/readyz", s.readyz)
 
 	// OAuth endpoints (public)
-	mux.HandleFunc("/auth/google/login", google.LoginHandler)
-	mux.HandleFunc("/auth/google/callback", google.CallbackHandler)
-	mux.HandleFunc("/auth/google/logout", google.LogoutHandler)
+	mux.HandleFunc("/auth/providers", s.authProviders)
+	if google != nil {
+		mux.HandleFunc("/auth/google/login", google.LoginHandler)
+		mux.HandleFunc("/auth/google/callback", google.CallbackHandler)
+		mux.HandleFunc("/auth/google/logout", google.LogoutHandler)
+	}
+	if oidc != nil {
+		mux.HandleFunc("/auth/oidc/login", oidc.LoginHandler)
+		mux.HandleFunc("/auth/oidc/callback", oidc.CallbackHandler)
+		mux.HandleFunc("/auth/oidc/logout", oidc.LogoutHandler)
+	}
 
 	// AWS IAM token exchange endpoint (public - uses AWS creds for auth)
 	if s.awsExchanger != nil {
@@ -137,6 +147,15 @@ func New(cfg config.Config, sessions *auth.SessionStore, google *auth.GoogleAuth
 	mux.Handle("/", s.staticHandler())
 
 	return s, nil
+}
+
+func (s *Server) authProviders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	oidcName := ""
+	if s.oidc != nil {
+		oidcName = s.oidc.ProviderName()
+	}
+	_, _ = fmt.Fprintf(w, `{"google":%t,"oidc":%t,"oidcName":%q}`, s.google != nil, s.oidc != nil, oidcName)
 }
 
 // ListenAndServe starts the HTTP server and blocks until it exits.

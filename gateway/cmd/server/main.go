@@ -18,7 +18,7 @@ import (
 )
 
 // Entry point for the cxdb Gateway server.
-// This gateway provides Google OAuth authentication for reads while
+// This gateway provides browser authentication for reads while
 // forwarding writes directly to the cxdb backend.
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -48,14 +48,36 @@ func main() {
 	}
 	defer func() { _ = sessionStore.Close() }()
 
-	googleAuth := auth.NewGoogleAuth(
-		cfg.PublicBaseURL,
-		cfg.GoogleClientID,
-		cfg.GoogleClientSecret,
-		cfg.GoogleAllowedDomain,
-		cfg.PublicAllowedHosts,
-		sessionStore,
-	)
+	var googleAuth *auth.GoogleAuth
+	if cfg.GoogleClientID != "" {
+		googleAuth = auth.NewGoogleAuth(
+			cfg.PublicBaseURL,
+			cfg.GoogleClientID,
+			cfg.GoogleClientSecret,
+			cfg.GoogleAllowedDomain,
+			cfg.PublicAllowedHosts,
+			sessionStore,
+		)
+	}
+
+	var oidcAuth *auth.OIDCAuth
+	if cfg.OIDCEnabled {
+		oidcAuth, err = auth.NewOIDCAuth(context.Background(), auth.OIDCOptions{
+			PublicBaseURL: cfg.PublicBaseURL,
+			IssuerURL:     cfg.OIDCIssuerURL,
+			ClientID:      cfg.OIDCClientID,
+			ClientSecret:  cfg.OIDCClientSecret,
+			Scopes:        cfg.OIDCScopes,
+			AllowedDomain: cfg.OIDCAllowedDomain,
+			AllowedEmails: cfg.OIDCAllowedEmails,
+			AllowedHosts:  cfg.PublicAllowedHosts,
+			ProviderName:  cfg.OIDCProviderName,
+		}, sessionStore)
+		if err != nil {
+			logger.Error("oidc auth init failed", "err", err)
+			os.Exit(1)
+		}
+	}
 
 	reverseProxy, err := proxy.NewReverseProxy(cfg.CXDBBackendURL, logger)
 	if err != nil {
@@ -73,7 +95,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	server, err := proxy.New(cfg, sessionStore, googleAuth, reverseProxy, staticAssets, logger)
+	server, err := proxy.New(cfg, sessionStore, googleAuth, oidcAuth, reverseProxy, staticAssets, logger)
 	if err != nil {
 		logger.Error("server init failed", "err", err)
 		os.Exit(1)

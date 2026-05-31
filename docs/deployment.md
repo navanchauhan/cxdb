@@ -61,10 +61,18 @@ Internet
 | `PORT` | No | HTTP port (default: 8080) |
 | `CXDB_BACKEND_URL` | Yes | Rust server HTTP URL |
 | `PUBLIC_BASE_URL` | Yes | Public URL for OAuth redirect |
-| `GOOGLE_CLIENT_ID` | Yes | OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | OAuth client secret |
+| `GOOGLE_CLIENT_ID` | If using Google | OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | If using Google | OAuth client secret |
 | `GOOGLE_ALLOWED_EMAILS` | No | Comma-separated email allowlist |
-| `GOOGLE_ALLOWED_DOMAIN` | No | Allowed email domain (e.g., example.com) |
+| `GOOGLE_ALLOWED_DOMAIN` | If using Google | Allowed email domain (e.g., example.com) |
+| `OIDC_ENABLED` | If using OIDC | Set to `true` for generic OIDC providers such as Pocket ID |
+| `OIDC_PROVIDER_NAME` | No | Display/logging name for the provider |
+| `OIDC_ISSUER_URL` | If using OIDC | OIDC issuer URL, e.g. `https://pocketid.example.com` |
+| `OIDC_CLIENT_ID` | If using OIDC | OIDC client ID |
+| `OIDC_CLIENT_SECRET` | If using OIDC | OIDC client secret |
+| `OIDC_SCOPES` | No | Comma-separated scopes (default: `openid,email,profile`) |
+| `OIDC_ALLOWED_EMAILS` | No | Comma-separated email allowlist |
+| `OIDC_ALLOWED_DOMAIN` | No | Allowed email domain. If no OIDC allowlist/domain is set, any IdP-authenticated user can log in. |
 | `SESSION_SECRET` | Yes | 64-char hex string for cookie signing |
 | `DATABASE_PATH` | No | Session DB path (default: ./data/sessions.db) |
 | `ALLOWED_RENDERER_ORIGINS` | No | CSP script-src origins (comma-separated) |
