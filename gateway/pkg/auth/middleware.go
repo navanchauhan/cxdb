@@ -87,11 +87,13 @@ type AuthMiddlewareOptions struct {
 	Store          *SessionStore
 	DevBypass      bool
 	TokenVerifiers []BearerTokenVerifier // Optional: K8s OIDC, AWS IAM, etc.
+	WriteTokens    []string
 }
 
 // RequireAuthForReads is an HTTP middleware that enforces a valid session for
-// all GET requests except explicitly whitelisted paths. Non-GET methods (writes)
-// are always allowed through without authentication.
+// all GET requests except explicitly whitelisted paths. Non-GET API methods are
+// allowed anonymously unless WriteTokens is configured, in which case they
+// require bearer authentication.
 func RequireAuthForReads(store *SessionStore, next http.Handler, devBypass bool) http.Handler {
 	return RequireAuthForReadsWithOptions(AuthMiddlewareOptions{
 		Store:     store,
@@ -106,17 +108,40 @@ func RequireAuthForReadsWithOptions(opts AuthMiddlewareOptions, next http.Handle
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Always allow non-GET methods (anonymous writes)
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		// Always allow non-data public paths before API auth decisions.
+		if isAlwaysPublicPath(path) {
 			if store.Debug() {
-				log.Printf("[auth] allowing write method %s %s", r.Method, path)
+				log.Printf("[auth] public path %s", path)
 			}
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Always allow public paths
-		if isPublicPath(path) {
+		if isUnsafeMethod(r.Method) {
+			if len(opts.WriteTokens) == 0 {
+				if store.Debug() {
+					log.Printf("[auth] allowing anonymous write method %s %s", r.Method, path)
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+			if sess := authenticatedWriteBearerSession(r, opts); sess != nil {
+				if store.Debug() {
+					log.Printf("[auth] bearer write authorized %s as %s", path, sess.Email)
+				}
+				ctx := WithUser(r.Context(), sess)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if store.Debug() {
+				log.Printf("[auth] write unauthorized %s", path)
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Always allow public read paths.
+		if isPublicReadPath(path) {
 			if store.Debug() {
 				log.Printf("[auth] public path %s", path)
 			}
@@ -128,17 +153,7 @@ func RequireAuthForReadsWithOptions(opts AuthMiddlewareOptions, next http.Handle
 
 		// Try bearer token authentication (K8s OIDC, AWS IAM, etc.)
 		if sess == nil {
-			if token := extractBearerToken(r); token != "" {
-				for _, verifier := range opts.TokenVerifiers {
-					if s, err := verifier.Verify(token); err == nil && s != nil {
-						sess = s
-						if store.Debug() {
-							log.Printf("[auth] bearer token verified: %s", s.Email)
-						}
-						break
-					}
-				}
-			}
+			sess = verifiedBearerSession(r, opts.TokenVerifiers)
 		}
 
 		// Check for debug auth bypass (static token from allowed IP)
@@ -197,11 +212,56 @@ func RequireAuthForReadsWithOptions(opts AuthMiddlewareOptions, next http.Handle
 
 // extractBearerToken extracts a bearer token from the Authorization header.
 func extractBearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	scheme, token, ok := strings.Cut(auth, " ")
+	if ok && strings.EqualFold(scheme, "Bearer") {
+		return strings.TrimSpace(token)
 	}
 	return ""
+}
+
+func authenticatedWriteBearerSession(r *http.Request, opts AuthMiddlewareOptions) *Session {
+	token := extractBearerToken(r)
+	if token == "" {
+		return nil
+	}
+	if writeBearerTokenAllowed(token, opts.WriteTokens) {
+		now := time.Now().UTC()
+		return &Session{
+			ID:        "write-bearer-session",
+			Email:     "write-token@cxdb.local",
+			Name:      "CXDB Write Token",
+			CreatedAt: now,
+			ExpiresAt: now.Add(24 * time.Hour),
+		}
+	}
+	return verifiedBearerSession(r, opts.TokenVerifiers)
+}
+
+func verifiedBearerSession(r *http.Request, verifiers []BearerTokenVerifier) *Session {
+	token := extractBearerToken(r)
+	if token == "" {
+		return nil
+	}
+	for _, verifier := range verifiers {
+		if s, err := verifier.Verify(token); err == nil && s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
+func writeBearerTokenAllowed(token string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if subtleEqual(token, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnsafeMethod(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
 // isAPIRequest returns true if the request appears to be an API request
@@ -223,7 +283,7 @@ func isAPIRequest(r *http.Request) bool {
 	return false
 }
 
-func isPublicPath(path string) bool {
+func isAlwaysPublicPath(path string) bool {
 	path = strings.ToLower(path)
 
 	// Health checks and login page
@@ -241,6 +301,12 @@ func isPublicPath(path string) bool {
 	if strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".ico") {
 		return true
 	}
+	return false
+}
+
+func isPublicReadPath(path string) bool {
+	path = strings.ToLower(path)
+
 	// Context list endpoint (just IDs, no bodies) - allow anonymous reads
 	// Note: r.URL.Path doesn't include query string, so /v1/contexts?limit=5 has path="/v1/contexts"
 	// But NOT /v1/contexts/{id} or /v1/contexts/{id}/turns - those require auth

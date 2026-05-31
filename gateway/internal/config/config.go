@@ -65,6 +65,9 @@ type Config struct {
 	AWSRegion          string
 	AWSIAMTokenTTL     time.Duration
 
+	// Write bearer tokens gate unsafe API methods when configured.
+	WriteBearerTokens []string
+
 	// Renderer CSP configuration
 	// List of allowed origins for loading external renderer ESM modules
 	AllowedRendererOrigins []string
@@ -149,6 +152,11 @@ func Load() (Config, error) {
 			cfg.AWSIAMTokenTTL = d
 		}
 	}
+
+	cfg.WriteBearerTokens = appendTokenLists(
+		splitAndTrimPreserveCase(os.Getenv("WRITE_BEARER_TOKEN")),
+		splitAndTrimPreserveCase(os.Getenv("WRITE_BEARER_TOKENS")),
+	)
 
 	// Renderer origin allowlist for CSP script-src directive
 	// Defaults to common public CDNs if not specified
@@ -249,6 +257,21 @@ func splitAndTrimPreserveCase(raw string) []string {
 	for _, p := range parts {
 		if v := strings.TrimSpace(p); v != "" {
 			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func appendTokenLists(lists ...[]string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, list := range lists {
+		for _, token := range list {
+			if token == "" || seen[token] {
+				continue
+			}
+			seen[token] = true
+			out = append(out, token)
 		}
 	}
 	return out

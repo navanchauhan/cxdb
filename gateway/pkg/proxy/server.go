@@ -168,6 +168,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		Store:          s.sessions,
 		DevBypass:      s.cfg.DevMode,
 		TokenVerifiers: s.tokenVerifiers,
+		WriteTokens:    s.cfg.WriteBearerTokens,
 	}, s.mux)
 	handler = s.rateLimitMiddleware(handler)
 	handler = s.securityHeaders(handler)

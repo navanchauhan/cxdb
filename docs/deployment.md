@@ -74,6 +74,8 @@ Internet
 | `OIDC_ALLOWED_EMAILS` | No | Comma-separated email allowlist |
 | `OIDC_ALLOWED_DOMAIN` | No | Allowed email domain. If no OIDC allowlist/domain is set, any IdP-authenticated user can log in. |
 | `SESSION_SECRET` | Yes | 64-char hex string for cookie signing |
+| `WRITE_BEARER_TOKEN` | No | Require `Authorization: Bearer <token>` for non-GET API writes |
+| `WRITE_BEARER_TOKENS` | No | Comma-separated additional write bearer tokens |
 | `DATABASE_PATH` | No | Session DB path (default: ./data/sessions.db) |
 | `ALLOWED_RENDERER_ORIGINS` | No | CSP script-src origins (comma-separated) |
 | `DEV_MODE` | No | Disable OAuth (development only) |
