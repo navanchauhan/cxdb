@@ -313,17 +313,6 @@ func (g *GoogleAuth) isAllowedRedirectBase(rawBaseURL string) bool {
 	return false
 }
 
-func canonicalHost(r *http.Request) string {
-	host := strings.ToLower(strings.TrimSpace(r.Host))
-	if host == "" {
-		return ""
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
-}
-
 func canonicalAuthority(r *http.Request) string {
 	host := strings.ToLower(strings.TrimSpace(r.Host))
 	if host == "" {
