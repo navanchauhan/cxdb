@@ -9,7 +9,7 @@ use rmpv::Value;
 use serde_json::{Map, Number, Value as JsonValue};
 
 use crate::error::{Result, StoreError};
-use crate::registry::{ItemsSpec, Registry, TypeVersionSpec};
+use crate::registry::{FieldSpec, ItemsSpec, Registry, TypeVersionSpec};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BytesRender {
@@ -61,23 +61,29 @@ pub fn project_msgpack(
     let value = rmpv::decode::read_value(&mut cursor)
         .map_err(|e| StoreError::InvalidInput(format!("msgpack decode error: {e}")))?;
 
-    let map = normalize_tags(&value)?;
+    let map = normalize_fields(&value)?;
     let mut data = Map::new();
     let mut unknown = Map::new();
 
     for (tag, field) in descriptor.fields.iter() {
-        if let Some(val) = map.get(tag) {
+        if let Some(val) = field_value(&map, *tag, field) {
             let rendered = render_field_value(val, field, registry, options);
             data.insert(field.name.clone(), rendered);
         }
     }
 
     if options.include_unknown {
-        for (tag, val) in map.iter() {
+        for (tag, val) in map.by_tag.iter() {
             if descriptor.fields.contains_key(tag) {
                 continue;
             }
             unknown.insert(tag.to_string(), render_value(val, options));
+        }
+        for (name, val) in map.by_name.iter() {
+            if descriptor.fields.values().any(|field| field.name == *name) {
+                continue;
+            }
+            unknown.insert(name.clone(), render_value(val, options));
         }
     }
 
@@ -91,8 +97,14 @@ pub fn project_msgpack(
     })
 }
 
-fn normalize_tags(value: &Value) -> Result<HashMap<u64, Value>> {
-    let mut out = HashMap::new();
+struct NormalizedFields {
+    by_tag: HashMap<u64, Value>,
+    by_name: HashMap<String, Value>,
+}
+
+fn normalize_fields(value: &Value) -> Result<NormalizedFields> {
+    let mut by_tag = HashMap::new();
+    let mut by_name = HashMap::new();
     let map = match value {
         Value::Map(map) => map,
         _ => return Err(StoreError::InvalidInput("payload is not a map".into())),
@@ -100,11 +112,19 @@ fn normalize_tags(value: &Value) -> Result<HashMap<u64, Value>> {
 
     for (k, v) in map.iter() {
         if let Some(tag) = key_to_tag(k) {
-            out.insert(tag, v.clone());
+            by_tag.insert(tag, v.clone());
+        } else if let Some(name) = key_to_name(k) {
+            by_name.insert(name.to_string(), v.clone());
         }
     }
 
-    Ok(out)
+    Ok(NormalizedFields { by_tag, by_name })
+}
+
+fn field_value<'a>(map: &'a NormalizedFields, tag: u64, field: &FieldSpec) -> Option<&'a Value> {
+    map.by_tag
+        .get(&tag)
+        .or_else(|| map.by_name.get(field.name.as_str()))
 }
 
 fn key_to_tag(key: &Value) -> Option<u64> {
@@ -114,6 +134,13 @@ fn key_to_tag(key: &Value) -> Option<u64> {
                 .and_then(|v| if v >= 0 { Some(v as u64) } else { None })
         }),
         Value::String(s) => s.as_str()?.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn key_to_name(key: &Value) -> Option<&str> {
+    match key {
+        Value::String(s) => s.as_str().filter(|name| !name.is_empty()),
         _ => None,
     }
 }
@@ -187,14 +214,14 @@ fn render_type_ref(
     };
 
     // Normalize the value to a tag map
-    let Ok(map) = normalize_tags(value) else {
+    let Ok(map) = normalize_fields(value) else {
         return render_value(value, options);
     };
 
     // Project using the type descriptor
     let mut data = Map::new();
     for (tag, field) in type_spec.fields.iter() {
-        if let Some(val) = map.get(tag) {
+        if let Some(val) = field_value(&map, *tag, field) {
             let rendered = render_field_value(val, field, registry, options);
             data.insert(field.name.clone(), rendered);
         }
@@ -204,11 +231,17 @@ fn render_type_ref(
     // descriptor doesn't know about so they surface through the HTTP API.
     if options.include_unknown {
         let mut unknown = Map::new();
-        for (tag, val) in map.iter() {
+        for (tag, val) in map.by_tag.iter() {
             if type_spec.fields.contains_key(tag) {
                 continue;
             }
             unknown.insert(tag.to_string(), render_value(val, options));
+        }
+        for (name, val) in map.by_name.iter() {
+            if type_spec.fields.values().any(|field| field.name == *name) {
+                continue;
+            }
+            unknown.insert(name.clone(), render_value(val, options));
         }
         if !unknown.is_empty() {
             data.insert("_unknown".into(), JsonValue::Object(unknown));

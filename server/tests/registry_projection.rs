@@ -81,6 +81,92 @@ fn registry_ingest_and_project() {
 }
 
 #[test]
+fn projection_accepts_descriptor_field_name_keys() {
+    let dir = tempdir().expect("tempdir");
+    let mut registry = Registry::open(dir.path()).expect("open registry");
+
+    let bundle = r#"
+    {
+      "registry_version": 1,
+      "bundle_id": "field-name-key-test",
+      "types": {
+        "test:Item": {
+          "versions": {
+            "1": {
+              "fields": {
+                "1": { "name": "item_type", "type": "string" },
+                "2": { "name": "system", "type": "ref", "ref": "test:System", "optional": true }
+              }
+            }
+          }
+        },
+        "test:System": {
+          "versions": {
+            "1": {
+              "fields": {
+                "1": { "name": "kind", "type": "string" },
+                "2": { "name": "title", "type": "string", "optional": true },
+                "3": { "name": "content", "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "enums": {}
+    }
+    "#;
+
+    registry
+        .put_bundle("field-name-key-test", bundle.as_bytes())
+        .expect("put bundle");
+    let desc = registry
+        .get_type_version("test:Item", 1)
+        .expect("descriptor");
+
+    let system_map = vec![
+        (Value::String("kind".into()), Value::String("info".into())),
+        (
+            Value::String("content".into()),
+            Value::String("ready".into()),
+        ),
+    ];
+    let root_map = vec![
+        (
+            Value::String("item_type".into()),
+            Value::String("system".into()),
+        ),
+        (Value::String("system".into()), Value::Map(system_map)),
+        (
+            Value::String("extra_name".into()),
+            Value::String("preserved".into()),
+        ),
+    ];
+    let value = Value::Map(root_map);
+
+    let mut buf = Vec::new();
+    rmpv::encode::write_value(&mut buf, &value).expect("encode msgpack");
+
+    let projection = project_msgpack(&buf, desc, &registry, &default_options()).expect("project");
+    let data = projection.data.as_object().expect("data object");
+    assert_eq!(data.get("item_type").unwrap().as_str().unwrap(), "system");
+
+    let system = data
+        .get("system")
+        .expect("system field present")
+        .as_object()
+        .expect("system object");
+    assert_eq!(system.get("kind").unwrap().as_str().unwrap(), "info");
+    assert_eq!(system.get("content").unwrap().as_str().unwrap(), "ready");
+
+    let unknown = projection.unknown.expect("unknown");
+    let unknown_obj = unknown.as_object().expect("unknown object");
+    assert_eq!(
+        unknown_obj.get("extra_name").unwrap().as_str().unwrap(),
+        "preserved"
+    );
+}
+
+#[test]
 fn nested_type_references() {
     let dir = tempdir().expect("tempdir");
     let mut registry = Registry::open(dir.path()).expect("open registry");
