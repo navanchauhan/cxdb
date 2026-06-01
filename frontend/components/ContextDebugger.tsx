@@ -15,13 +15,15 @@ import { ProvenancePanel } from './ProvenancePanel';
 import { DynamicRenderer } from './DynamicRenderer';
 import { useRendererManifest } from '@/lib/use-renderer';
 import { getItemTypeLabel, getItemTypeColors } from '@/types/conversation';
-import type { ConversationItem, ItemType } from '@/types/conversation';
+import type { ConversationItem, ItemType, ToolCallItem } from '@/types/conversation';
 
 // View tabs for the right panel
 type DetailView = 'turn' | 'provenance';
 
 // Detect turn type from declared_type or data
 type TurnKind = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'system' | 'quest_event' | 'quest_snapshot' | 'unknown';
+
+type ExtractedToolResult = { toolCallId: string; content: string; isError: boolean };
 
 // Map canonical item_type to TurnKind
 function canonicalToTurnKind(itemType: ItemType): TurnKind {
@@ -162,7 +164,7 @@ function extractToolCalls(turn: Turn): Array<{ id: string; name: string; argumen
 }
 
 // Extract tool result info - handles canonical types and legacy formats
-function extractToolResult(turn: Turn): { toolCallId: string; content: string; isError: boolean } | null {
+function extractToolResult(turn: Turn): ExtractedToolResult | null {
   const data = turn.data as Record<string, unknown> | undefined;
   if (!data) return null;
 
@@ -186,6 +188,58 @@ function extractToolResult(turn: Turn): { toolCallId: string; content: string; i
     toolCallId: toolCallId ?? 'unknown',
     content: content ?? '',
     isError: isError ?? false,
+  };
+}
+
+function buildToolResultMap(turns: Turn[]): Map<string, ExtractedToolResult> {
+  const results = new Map<string, ExtractedToolResult>();
+  for (const turn of turns) {
+    const result = extractToolResult(turn);
+    if (result?.toolCallId) {
+      results.set(result.toolCallId, result);
+    }
+  }
+  return results;
+}
+
+function enrichToolCallItemWithResult(toolCall: ToolCallItem, result: ExtractedToolResult | undefined): ToolCallItem {
+  if (!result) return toolCall;
+
+  return {
+    ...toolCall,
+    status: result.isError ? 'error' : 'complete',
+    result: result.isError
+      ? toolCall.result
+      : {
+          content: result.content,
+          success: true,
+        },
+    error: result.isError
+      ? {
+          message: result.content,
+        }
+      : toolCall.error,
+  };
+}
+
+function enrichTurnWithToolResults(turn: Turn | null, resultByCallId: Map<string, ExtractedToolResult>): Turn | null {
+  if (!turn || !isConversationItem(turn.data)) return turn;
+  const item = turn.data as ConversationItem;
+  if (item.item_type !== 'assistant_turn' || !item.turn?.tool_calls?.length) return turn;
+
+  const toolCalls = item.turn.tool_calls.map((toolCall) => (
+    enrichToolCallItemWithResult(toolCall, resultByCallId.get(toolCall.id))
+  ));
+
+  return {
+    ...turn,
+    data: {
+      ...item,
+      turn: {
+        ...item.turn,
+        tool_calls: toolCalls,
+      },
+    },
   };
 }
 
@@ -379,6 +433,47 @@ function LegacyTurnContentView({ turn }: { turn: Turn }) {
       {!content && toolCalls.length === 0 && !toolResult && (
         <div className="text-sm text-theme-text-dim italic">No content</div>
       )}
+    </div>
+  );
+}
+
+function MatchingToolResults({ matches }: { matches: Array<{ id: string; result: ExtractedToolResult }> }) {
+  if (matches.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {matches.map(({ id, result }) => (
+        <div
+          key={id}
+          className={cn(
+            'border rounded-lg overflow-hidden',
+            result.isError ? 'border-red-500/30' : 'border-emerald-500/30'
+          )}
+        >
+          <div className={cn(
+            'px-3 py-2 flex items-center gap-2',
+            result.isError ? 'bg-red-500/10' : 'bg-emerald-500/10'
+          )}>
+            {result.isError ? (
+              <XCircle className="w-4 h-4 text-red-400" />
+            ) : (
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+            )}
+            <span className={cn(
+              'text-xs font-medium',
+              result.isError ? 'text-red-300' : 'text-emerald-300'
+            )}>
+              Matching {result.isError ? 'Error' : 'Result'}
+            </span>
+            <span className="text-xs text-theme-text-dim font-mono">{id}</span>
+          </div>
+          <div className="p-3 bg-theme-bg-secondary/50">
+            <pre className="text-xs text-theme-text-secondary whitespace-pre-wrap break-words font-mono max-h-[300px] overflow-y-auto">
+              {result.content}
+            </pre>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -584,6 +679,23 @@ export function ContextDebugger({ contextId, isOpen, onClose, lastEvent, initial
 
   // Selected turn
   const selectedTurn = filteredTurns[selectedIdx] ?? null;
+  const toolResultByCallId = useMemo(
+    () => buildToolResultMap(data?.turns ?? []),
+    [data?.turns]
+  );
+  const selectedTurnForRender = useMemo(
+    () => enrichTurnWithToolResults(selectedTurn, toolResultByCallId),
+    [selectedTurn, toolResultByCallId]
+  );
+  const selectedToolResultMatches = useMemo(() => {
+    if (!selectedTurn || detectTurnKind(selectedTurn) !== 'tool_call') return [];
+    return extractToolCalls(selectedTurn)
+      .map((toolCall) => ({
+        id: toolCall.id,
+        result: toolResultByCallId.get(toolCall.id),
+      }))
+      .filter((match): match is { id: string; result: ExtractedToolResult } => Boolean(match.result));
+  }, [selectedTurn, toolResultByCallId]);
 
   // Detect filesystem for selected turn
   const selectedTurnId = selectedTurn?.turn_id;
@@ -1034,11 +1146,13 @@ export function ContextDebugger({ contextId, isOpen, onClose, lastEvent, initial
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
                     {/* Primary content view - uses dynamic renderer registry */}
                     <DynamicRenderer
-                      data={selectedTurn.data}
-                      typeId={selectedTurn.declared_type?.type_id ?? ''}
-                      typeVersion={selectedTurn.declared_type?.type_version ?? 1}
+                      data={(selectedTurnForRender ?? selectedTurn).data}
+                      typeId={(selectedTurnForRender ?? selectedTurn).declared_type?.type_id ?? ''}
+                      typeVersion={(selectedTurnForRender ?? selectedTurn).declared_type?.type_version ?? 1}
                       manifest={manifest}
                     />
+
+                    <MatchingToolResults matches={selectedToolResultMatches} />
 
                     {/* Collapsible metadata */}
                     <CollapsibleSection
