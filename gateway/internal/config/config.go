@@ -193,9 +193,6 @@ func (c Config) validate() error {
 		if c.OIDCClientSecret == "" {
 			missing = append(missing, "OIDC_CLIENT_SECRET")
 		}
-		if len(c.OIDCAllowedDomains) == 0 {
-			missing = append(missing, "OIDC_ALLOWED_DOMAINS")
-		}
 	}
 	if !googleConfigured && !c.OIDCEnabled && !c.DevMode {
 		missing = append(missing, "GOOGLE_CLIENT_ID or OIDC_ENABLED=true")

@@ -69,7 +69,7 @@ Internet
 | `OIDC_ISSUER_URL` | If using OIDC | HTTPS OIDC issuer URL, e.g. `https://pocketid.example.com` |
 | `OIDC_CLIENT_ID` | If using OIDC | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | If using OIDC | OIDC client secret |
-| `OIDC_ALLOWED_DOMAINS` | If using OIDC | Comma-separated email domains allowed to sign in |
+| `OIDC_ALLOWED_DOMAINS` | No | Optional comma-separated email domains. If empty, any verified OIDC email can sign in |
 | `SESSION_SECRET` | Yes | 64-char hex string for cookie signing |
 | `DATABASE_PATH` | No | Session DB path (default: ./data/sessions.db) |
 | `ALLOWED_RENDERER_ORIGINS` | No | CSP script-src origins (comma-separated) |

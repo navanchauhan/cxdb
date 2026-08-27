@@ -95,7 +95,7 @@ func TestBrowserOIDCVerifiedCodeFlowAndNonce(t *testing.T) {
 	}
 	defer func() { _ = store.Close() }()
 	discoveryContext := oidc.ClientContext(context.Background(), provider.Client())
-	browser, err := NewBrowserOIDC(discoveryContext, issuer, "cxdb-client", "client-secret", "https://cxdb.example", []string{"example.com"}, store)
+	browser, err := NewBrowserOIDC(discoveryContext, issuer, "cxdb-client", "client-secret", "https://cxdb.example", nil, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,6 +156,26 @@ func TestBrowserOIDCVerifiedCodeFlowAndNonce(t *testing.T) {
 	browser.CallbackHandler(badCallbackResponse, badCallback)
 	if badCallbackResponse.Header().Get("Location") != "/login?error=unauthorized" {
 		t.Fatalf("nonce mismatch redirect = %q", badCallbackResponse.Header().Get("Location"))
+	}
+}
+
+func TestBrowserOIDCEmailAllowed(t *testing.T) {
+	anyDomain := &BrowserOIDC{}
+	for _, email := range []string{"alice@example.com", "user@other.test"} {
+		if !anyDomain.emailAllowed(email) {
+			t.Errorf("emailAllowed(%q) = false with no domain restriction", email)
+		}
+	}
+	if anyDomain.emailAllowed("not-an-email") {
+		t.Error("malformed email was accepted")
+	}
+
+	restricted := &BrowserOIDC{allowedDomains: map[string]struct{}{"example.com": {}}}
+	if !restricted.emailAllowed("alice@example.com") {
+		t.Error("allowed domain was rejected")
+	}
+	if restricted.emailAllowed("user@other.test") {
+		t.Error("unlisted domain was accepted")
 	}
 }
 

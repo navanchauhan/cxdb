@@ -38,6 +38,8 @@ type browserOIDCTransaction struct {
 }
 
 // NewBrowserOIDC performs OIDC discovery and pins token verification to issuer and client ID.
+// An empty allowedDomains list permits any verified OIDC email. Set the list to
+// restrict access to specific email domains.
 func NewBrowserOIDC(ctx context.Context, issuer, clientID, clientSecret, publicBaseURL string, allowedDomains []string, sessions *SessionStore) (*BrowserOIDC, error) {
 	issuer = strings.TrimSuffix(strings.TrimSpace(issuer), "/")
 	issuerURL, err := url.Parse(issuer)
@@ -54,9 +56,6 @@ func NewBrowserOIDC(ctx context.Context, issuer, clientID, clientSecret, publicB
 		if domain != "" {
 			domains[domain] = struct{}{}
 		}
-	}
-	if len(domains) == 0 {
-		return nil, errors.New("at least one OIDC email domain is required")
 	}
 	return &BrowserOIDC{
 		issuer:         issuer,
@@ -201,6 +200,9 @@ func (o *BrowserOIDC) emailAllowed(email string) bool {
 	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(email)), "@")
 	if !ok || domain == "" {
 		return false
+	}
+	if len(o.allowedDomains) == 0 {
+		return true
 	}
 	_, ok = o.allowedDomains[domain]
 	return ok
