@@ -65,19 +65,15 @@ Internet
 | `GOOGLE_CLIENT_SECRET` | If using Google | OAuth client secret |
 | `GOOGLE_ALLOWED_EMAILS` | No | Comma-separated email allowlist |
 | `GOOGLE_ALLOWED_DOMAIN` | If using Google | Allowed email domain (e.g., example.com) |
-| `OIDC_ENABLED` | If using OIDC | Set to `true` for generic OIDC providers such as Pocket ID |
-| `OIDC_PROVIDER_NAME` | No | Display/logging name for the provider |
-| `OIDC_ISSUER_URL` | If using OIDC | OIDC issuer URL, e.g. `https://pocketid.example.com` |
+| `OIDC_ENABLED` | If using OIDC | Set to `true` for a browser OIDC provider such as Pocket ID |
+| `OIDC_ISSUER_URL` | If using OIDC | HTTPS OIDC issuer URL, e.g. `https://pocketid.example.com` |
 | `OIDC_CLIENT_ID` | If using OIDC | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | If using OIDC | OIDC client secret |
-| `OIDC_SCOPES` | No | Comma-separated scopes (default: `openid,email,profile`) |
-| `OIDC_ALLOWED_EMAILS` | No | Comma-separated email allowlist |
-| `OIDC_ALLOWED_DOMAIN` | No | Allowed email domain. If no OIDC allowlist/domain is set, any IdP-authenticated user can log in. |
+| `OIDC_ALLOWED_DOMAINS` | If using OIDC | Comma-separated email domains allowed to sign in |
 | `SESSION_SECRET` | Yes | 64-char hex string for cookie signing |
-| `WRITE_BEARER_TOKEN` | No | Require `Authorization: Bearer <token>` for non-GET API writes |
-| `WRITE_BEARER_TOKENS` | No | Comma-separated additional write bearer tokens |
 | `DATABASE_PATH` | No | Session DB path (default: ./data/sessions.db) |
 | `ALLOWED_RENDERER_ORIGINS` | No | CSP script-src origins (comma-separated) |
+| `TRUSTED_PROXY_CIDRS` | No | CIDRs of reverse proxies whose X-Forwarded-For chain can identify clients for auth rate limits |
 | `DEV_MODE` | No | Disable OAuth (development only) |
 
 ### Generating Secrets

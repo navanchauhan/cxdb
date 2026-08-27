@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,18 +24,15 @@ type Config struct {
 	GoogleClientID      string
 	GoogleClientSecret  string
 	GoogleAllowedDomain string
-
-	OIDCEnabled       bool
-	OIDCIssuerURL     string
-	OIDCClientID      string
-	OIDCClientSecret  string
-	OIDCScopes        []string
-	OIDCAllowedDomain string
-	OIDCAllowedEmails []string
-	OIDCProviderName  string
+	OIDCEnabled         bool
+	OIDCIssuerURL       string
+	OIDCClientID        string
+	OIDCClientSecret    string
+	OIDCAllowedDomains  []string
 
 	PublicBaseURL      string
 	PublicAllowedHosts []string
+	TrustedProxyCIDRs  []string
 
 	SessionSecret string
 	DatabasePath  string
@@ -65,9 +63,6 @@ type Config struct {
 	AWSRegion          string
 	AWSIAMTokenTTL     time.Duration
 
-	// Write bearer tokens gate unsafe API methods when configured.
-	WriteBearerTokens []string
-
 	// Renderer CSP configuration
 	// List of allowed origins for loading external renderer ESM modules
 	AllowedRendererOrigins []string
@@ -97,6 +92,7 @@ func Load() (Config, error) {
 		GoogleClientSecret:  strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")),
 		PublicBaseURL:       firstNonEmpty(os.Getenv("PUBLIC_BASE_URL"), defaultBaseURL),
 		PublicAllowedHosts:  splitAndTrim(firstNonEmpty(os.Getenv("PUBLIC_ALLOWED_HOSTS"), "")),
+		TrustedProxyCIDRs:   splitAndTrim(firstNonEmpty(os.Getenv("TRUSTED_PROXY_CIDRS"), "")),
 		SessionSecret:       strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 		DatabasePath:        firstNonEmpty(os.Getenv("DATABASE_PATH"), defaultDBPath),
 		Port:                firstNonEmpty(os.Getenv("PORT"), defaultPort),
@@ -106,15 +102,11 @@ func Load() (Config, error) {
 		SessionTTL:          defaultSessionTTL,
 		CXDBBackendURL:      firstNonEmpty(os.Getenv("CXDB_BACKEND_URL"), defaultCXDBBackendURL),
 	}
-
 	cfg.OIDCEnabled = parseBoolEnv("OIDC_ENABLED")
-	cfg.OIDCIssuerURL = strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL"))
+	cfg.OIDCIssuerURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL")), "/")
 	cfg.OIDCClientID = strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
 	cfg.OIDCClientSecret = strings.TrimSpace(os.Getenv("OIDC_CLIENT_SECRET"))
-	cfg.OIDCScopes = splitAndTrimPreserveCase(os.Getenv("OIDC_SCOPES"))
-	cfg.OIDCAllowedDomain = strings.ToLower(strings.TrimSpace(os.Getenv("OIDC_ALLOWED_DOMAIN")))
-	cfg.OIDCAllowedEmails = splitAndTrim(os.Getenv("OIDC_ALLOWED_EMAILS"))
-	cfg.OIDCProviderName = firstNonEmpty(os.Getenv("OIDC_PROVIDER_NAME"), "OIDC")
+	cfg.OIDCAllowedDomains = splitAndTrim(os.Getenv("OIDC_ALLOWED_DOMAINS"))
 
 	if ttlStr := strings.TrimSpace(os.Getenv("SESSION_TTL_HOURS")); ttlStr != "" {
 		if hours, err := strconv.Atoi(ttlStr); err == nil && hours > 0 {
@@ -153,14 +145,8 @@ func Load() (Config, error) {
 		}
 	}
 
-	cfg.WriteBearerTokens = appendTokenLists(
-		splitAndTrimPreserveCase(os.Getenv("WRITE_BEARER_TOKEN")),
-		splitAndTrimPreserveCase(os.Getenv("WRITE_BEARER_TOKENS")),
-	)
-
 	// Renderer origin allowlist for CSP script-src directive
 	// Defaults to common public CDNs if not specified
-	// For self-hosted renderers, set ALLOWED_RENDERER_ORIGINS to your CDN origin
 	cfg.AllowedRendererOrigins = splitAndTrimPreserveCase(os.Getenv("ALLOWED_RENDERER_ORIGINS"))
 	if len(cfg.AllowedRendererOrigins) == 0 {
 		cfg.AllowedRendererOrigins = []string{
@@ -182,10 +168,9 @@ func Load() (Config, error) {
 
 func (c Config) validate() error {
 	var missing []string
-	if c.SessionSecret == "" {
-		missing = append(missing, "SESSION_SECRET")
+	if len(strings.TrimSpace(c.SessionSecret)) < 32 {
+		missing = append(missing, "SESSION_SECRET (minimum 32 bytes)")
 	}
-
 	googleConfigured := c.GoogleClientID != "" || c.GoogleClientSecret != "" || c.GoogleAllowedDomain != ""
 	if googleConfigured {
 		if c.GoogleClientID == "" {
@@ -198,21 +183,22 @@ func (c Config) validate() error {
 			missing = append(missing, "GOOGLE_ALLOWED_DOMAIN")
 		}
 	}
-
 	if c.OIDCEnabled {
 		if c.OIDCIssuerURL == "" {
-			missing = append(missing, "OIDC_ISSUER_URL (required when OIDC_ENABLED=true)")
+			missing = append(missing, "OIDC_ISSUER_URL")
 		}
 		if c.OIDCClientID == "" {
-			missing = append(missing, "OIDC_CLIENT_ID (required when OIDC_ENABLED=true)")
+			missing = append(missing, "OIDC_CLIENT_ID")
 		}
 		if c.OIDCClientSecret == "" {
-			missing = append(missing, "OIDC_CLIENT_SECRET (required when OIDC_ENABLED=true)")
+			missing = append(missing, "OIDC_CLIENT_SECRET")
+		}
+		if len(c.OIDCAllowedDomains) == 0 {
+			missing = append(missing, "OIDC_ALLOWED_DOMAINS")
 		}
 	}
-
 	if !googleConfigured && !c.OIDCEnabled && !c.DevMode {
-		missing = append(missing, "GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_ALLOWED_DOMAIN or OIDC_ENABLED=true")
+		missing = append(missing, "GOOGLE_CLIENT_ID or OIDC_ENABLED=true")
 	}
 
 	// Conditional validation for K8s OIDC
@@ -234,6 +220,11 @@ func (c Config) validate() error {
 	}
 	if _, err := url.Parse(c.CXDBBackendURL); err != nil {
 		return errors.New("invalid CXDB_BACKEND_URL")
+	}
+	for _, cidr := range c.TrustedProxyCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid TRUSTED_PROXY_CIDRS entry %q", cidr)
+		}
 	}
 	return nil
 }
@@ -262,21 +253,6 @@ func splitAndTrimPreserveCase(raw string) []string {
 	return out
 }
 
-func appendTokenLists(lists ...[]string) []string {
-	seen := make(map[string]bool)
-	var out []string
-	for _, list := range lists {
-		for _, token := range list {
-			if token == "" || seen[token] {
-				continue
-			}
-			seen[token] = true
-			out = append(out, token)
-		}
-	}
-	return out
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -299,8 +275,19 @@ func parseBoolEnv(key string) bool {
 }
 
 func isLocalhostURL(raw string) bool {
-	lower := strings.ToLower(raw)
-	return strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1")
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.User != nil || u.Host == "" {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func hostnameFromURL(raw string) string {

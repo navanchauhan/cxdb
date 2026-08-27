@@ -1,32 +1,12 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense } from 'react';
 import { Database, AlertCircle } from '@/components/icons';
 
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
-  const [providers, setProviders] = useState({ google: true, oidc: true, oidcName: 'OIDC' });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/auth/providers')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data) {
-          setProviders({
-            google: Boolean(data.google),
-            oidc: Boolean(data.oidc),
-            oidcName: typeof data.oidcName === 'string' && data.oidcName ? data.oidcName : 'OIDC',
-          });
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const errorMessages: Record<string, string> = {
     access_denied: 'Access was denied. Please try again.',
@@ -55,19 +35,7 @@ function LoginContent() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
-          {providers.oidc && (
-            <a
-              href="/auth/oidc/login"
-              className="inline-flex items-center justify-center gap-3 px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-lg transition-colors"
-            >
-              <Database className="w-[18px] h-[18px]" />
-              Sign in with {providers.oidcName}
-            </a>
-          )}
-
-          {providers.google && (
-            <a
+        <a
               href="/auth/google/login"
               className="inline-flex items-center justify-center gap-3 px-6 py-3 bg-white hover:bg-gray-100 text-gray-900 font-medium rounded-lg transition-colors"
             >
@@ -90,9 +58,7 @@ function LoginContent() {
                 />
               </svg>
               Sign in with Google
-            </a>
-          )}
-        </div>
+        </a>
 
         <p className="text-xs text-theme-text-faint mt-8">
           Access restricted to authorized users only.

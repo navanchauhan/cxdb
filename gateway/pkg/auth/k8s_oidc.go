@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -34,8 +35,12 @@ type K8sOIDCVerifier struct {
 
 // NewK8sOIDCVerifier creates a new verifier for K8s service account tokens.
 func NewK8sOIDCVerifier(issuerURL, audience string, allowedNamespaces []string) (*K8sOIDCVerifier, error) {
+	issuerURL = strings.TrimSuffix(issuerURL, "/")
+	if err := requireHTTPSURL(issuerURL, "issuer URL"); err != nil {
+		return nil, err
+	}
 	v := &K8sOIDCVerifier{
-		issuerURL:         strings.TrimSuffix(issuerURL, "/"),
+		issuerURL:         issuerURL,
 		audience:          audience,
 		allowedNamespaces: make(map[string]bool),
 		refreshInterval:   1 * time.Hour,
@@ -111,11 +116,15 @@ func (v *K8sOIDCVerifier) Verify(tokenString string) (*Session, error) {
 	}
 
 	return &Session{
-		ID:        fmt.Sprintf("k8s:%s:%s", namespace, saName),
-		Email:     fmt.Sprintf("%s/%s@k8s.local", namespace, saName),
-		Name:      fmt.Sprintf("ServiceAccount: %s/%s", namespace, saName),
-		CreatedAt: token.IssuedAt(),
-		ExpiresAt: token.Expiration(),
+		ID:         fmt.Sprintf("k8s:%s:%s", namespace, saName),
+		Email:      fmt.Sprintf("%s/%s@k8s.local", namespace, saName),
+		Name:       fmt.Sprintf("ServiceAccount: %s/%s", namespace, saName),
+		Scopes:     []string{"cxdb:read", "cxdb:write"},
+		CreatedAt:  token.IssuedAt(),
+		ExpiresAt:  token.Expiration(),
+		AuthMethod: "k8s_oidc",
+		Issuer:     v.issuerURL,
+		Subject:    sub,
 	}, nil
 }
 
@@ -148,6 +157,9 @@ func (v *K8sOIDCVerifier) refreshKeySet(ctx context.Context) error {
 	if discovery.JWKSURI == "" {
 		return fmt.Errorf("no jwks_uri in discovery document")
 	}
+	if err := requireHTTPSURL(discovery.JWKSURI, "JWKS URL"); err != nil {
+		return err
+	}
 
 	// Fetch JWKS
 	keySet, err := jwk.Fetch(ctx, discovery.JWKSURI)
@@ -164,6 +176,14 @@ func (v *K8sOIDCVerifier) refreshKeySet(ctx context.Context) error {
 		log.Printf("[k8s-oidc] refreshed JWKS from %s", discovery.JWKSURI)
 	}
 
+	return nil
+}
+
+func requireHTTPSURL(raw, label string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("%s must be an absolute HTTPS URL", label)
+	}
 	return nil
 }
 

@@ -1,3 +1,6 @@
+// Copyright 2025 StrongDM Inc
+// SPDX-License-Identifier: Apache-2.0
+
 // Core Turn DAG types matching the Rust HTTP gateway responses
 
 export interface DeclaredType {
@@ -13,6 +16,7 @@ export interface Turn {
   decoded_as?: DeclaredType;
   data?: Record<string, unknown>;
   unknown?: Record<string, unknown>;
+  projection_error?: { message: string };
   raw?: string; // base64-encoded raw payload when view=raw or view=both
 }
 
@@ -21,6 +25,8 @@ export interface ContextMeta {
   head_turn_id: string;
   head_depth: number;
   registry_bundle_id?: string;
+  /** Present when list payload strings are bounded and detail needs hydration. */
+  string_limit?: number;
 }
 
 export interface TurnResponse {
@@ -38,6 +44,32 @@ export interface ErrorResponse {
   error: ErrorDetail;
 }
 
+// Browser identity and personal API token types. Token plaintext is returned
+// only by creation and is never part of the metadata list.
+export interface CurrentUser {
+  email: string;
+  name?: string;
+  picture?: string;
+  issuer: string;
+  subject: string;
+  scopes: string[];
+  auth_method?: string;
+  csrf_token: string;
+}
+
+export interface APITokenMetadata {
+  id: string;
+  prefix: string;
+  name: string;
+  issuer: string;
+  subject: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+}
+
 // Query options for fetching turns
 export interface FetchTurnsOptions {
   limit?: number;
@@ -49,6 +81,8 @@ export interface FetchTurnsOptions {
   enum_render?: 'label' | 'number' | 'both';
   time_render?: 'iso' | 'unix_ms';
   include_unknown?: boolean;
+  string_limit?: number;
+  turn_id?: string;
 }
 
 // Debug event types for the Context Debugger
