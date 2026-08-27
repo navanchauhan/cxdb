@@ -28,7 +28,7 @@ RUN pnpm build
 # ============================================
 # Stage 2: Build Rust binary
 # ============================================
-FROM rust:1.92-bookworm AS backend
+FROM rust:1.94.1-bookworm AS backend
 
 WORKDIR /app
 
