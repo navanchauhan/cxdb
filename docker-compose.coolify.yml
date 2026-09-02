@@ -17,6 +17,11 @@ services:
       CXDB_ENABLE_METRICS: ${CXDB_ENABLE_METRICS:-false}
       CXDB_MAX_BLOB_SIZE: ${CXDB_MAX_BLOB_SIZE:-10485760}
       CXDB_COMPRESSION_LEVEL: ${CXDB_COMPRESSION_LEVEL:-3}
+      # The private backend trusts the gateway. Coolify otherwise injects the
+      # service-level write token here, but the gateway deliberately strips
+      # caller credentials after authenticating them.
+      WRITE_BEARER_TOKEN: ""
+      WRITE_BEARER_TOKENS: ""
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9010/healthz"]
       interval: 30s
@@ -46,6 +51,8 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS:-}
       SESSION_SECRET: ${SESSION_SECRET}
+      WRITE_BEARER_TOKEN: ${WRITE_BEARER_TOKEN:-}
+      WRITE_BEARER_TOKENS: ${WRITE_BEARER_TOKENS:-}
       DATABASE_PATH: /data/sessions.db
       SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
       ALLOWED_RENDERER_ORIGINS: ${ALLOWED_RENDERER_ORIGINS:-https://esm.sh,https://cdn.jsdelivr.net,https://unpkg.com}
